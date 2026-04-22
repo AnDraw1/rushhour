@@ -1,0 +1,356 @@
+﻿<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>Rush Hour</title>
+    <style>
+        body { display: flex; flex-direction: column; align-items: center; background: #1a1a1a; color: white; font-family: 'Segoe UI', sans-serif; margin: 0; padding-top: 10px; }
+        .ui { margin-bottom: 15px; text-align: center; background: rgba(255,255,255,0.1); padding: 15px; border-radius: 10px; min-width: 300px; }
+        h1 { margin: 0; color: #f1c40f; font-size: 24px; }
+        .stats { margin: 10px 0; font-weight: bold; color: #3498db; }
+        button { padding: 8px 20px; font-size: 14px; cursor: pointer; background: #e74c3c; color: white; border: none; border-radius: 20px; font-weight: bold; margin: 5px; }
+        canvas { background: #34495e; border: 8px solid #2c3e50; cursor: grab; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        canvas:active { cursor: grabbing; }
+    </style>
+</head>
+<body>
+
+    <div class="ui">
+        <h1>RUSH HOUR</h1>
+        <div id="levelDisplay" class="stats">LEVEL: 1 / 7</div>
+        <button onclick="resetGame()">重置關卡</button>
+    </div>
+
+    <canvas id="gameCanvas" width="600" height="600"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const gridSize = 100;
+        
+        let currentLevelIndex = 0;
+        let vehicles = [];
+        let selectedVehicle = null;
+        let isDragging = false;
+        let isGameOver = false;
+        let currentButtons = []; // Store current level's buttons
+        let exitLocked = false; // New: State for the exit lock
+
+        // 關卡資料庫
+        const levels = [
+            // Level 1: 入門
+            {
+                vehicles: [
+                    { x: 0, y: 2, len: 2, dir: 'H', color: '#e74c3c', isTarget: true },
+                    { x: 2, y: 0, len: 3, dir: 'V', color: '#f1c40f' },
+                    { x: 3, y: 0, len: 2, dir: 'H', color: '#3498db' },
+                    { x: 4, y: 1, len: 2, dir: 'V', color: '#2ecc71' }
+                ],
+                buttons: [],
+                exitLockId: null
+            },
+            // Level 2: 進階 (需要挪動左側車輛)
+            {
+                vehicles: [
+                    { x: 1, y: 2, len: 2, dir: 'H', color: '#e74c3c', isTarget: true },
+                    { x: 0, y: 0, len: 3, dir: 'V', color: '#9b59b6' },
+                    { x: 3, y: 1, len: 3, dir: 'V', color: '#f1c40f' },
+                    { x: 1, y: 0, len: 2, dir: 'H', color: '#3498db' },
+                    { x: 4, y: 2, len: 2, dir: 'V', color: '#2ecc71' },
+                    { x: 2, y: 4, len: 3, dir: 'H', color: '#e67e22' }
+                ],
+                buttons: [],
+                exitLockId: null
+            },
+            // Level 3: 挑戰 (高度擁擠)
+            {
+                vehicles: [
+                    { x: 0, y: 2, len: 2, dir: 'H', color: '#e74c3c', isTarget: true },
+                    { x: 2, y: 2, len: 2, dir: 'V', color: '#f1c40f' },
+                    { x: 3, y: 2, len: 3, dir: 'V', color: '#95a5a6' },
+                    { x: 0, y: 0, len: 2, dir: 'H', color: '#3498db' },
+                    { x: 2, y: 0, len: 2, dir: 'H', color: '#9b59b6' },
+                    { x: 4, y: 0, len: 2, dir: 'V', color: '#2ecc71' },
+                    { x: 0, y: 3, len: 2, dir: 'V', color: '#e67e22' },
+                    { x: 4, y: 4, len: 2, dir: 'H', color: '#1abc9c' },
+                    { x: 1, y: 5, len: 3, dir: 'H', color: '#ecf0f1' }
+                ],
+                buttons: [],
+                exitLockId: null
+            },
+            // Level 4: 新增關卡 (修正且難度再提升)
+            {
+                vehicles: [
+                    { x: 0, y: 2, len: 2, dir: 'H', color: '#e74c3c', isTarget: true }, // Red car
+                    { x: 2, y: 0, len: 3, dir: 'V', color: '#f1c40f' }, // Blocker 1
+                    { x: 0, y: 0, len: 2, dir: 'H', color: '#3498db' }, // Blocker 2
+                    { x: 0, y: 4, len: 2, dir: 'V', color: '#2ecc71' }, // Blocker 3
+                    { x: 3, y: 4, len: 3, dir: 'H', color: '#e67e22' }, // Blocker 4
+                    { x: 4, y: 0, len: 2, dir: 'V', color: '#9b59b6' }, // Blocker 5
+                    { x: 2, y: 3, len: 2, dir: 'H', color: '#1abc9c' }, // Blocker 6
+                    { x: 5, y: 0, len: 3, dir: 'V', color: '#95a5a6' }  // Blocker 7
+                ],
+                buttons: [],
+                exitLockId: null
+            },
+            // Level 5: 機關門機制 (不比 Level 4 難)
+            {
+                vehicles: [
+                    { x: 0, y: 2, len: 2, dir: 'H', color: '#e74c3c', isTarget: true }, // Red car
+                    { x: 2, y: 0, len: 3, dir: 'V', color: '#f1c40f' }, // Blocker 1
+                    { x: 0, y: 0, len: 2, dir: 'H', color: '#3498db' }, // Blocker 2
+                    { x: 0, y: 3, len: 2, dir: 'V', color: '#2ecc71' }  // Blocker 3
+                ],
+                buttons: [
+                    { x: 5, y: 0, id: "lock1" } // Button to unlock exit
+                ],
+                exitLockId: "lock1"
+            },
+            // Level 6: 機關門機制 (比 Level 5 難)
+            {
+                vehicles: [
+                    { x: 0, y: 2, len: 2, dir: 'H', color: '#e74c3c', isTarget: true }, // Red car
+                    { x: 2, y: 0, len: 3, dir: 'V', color: '#f1c40f' }, // Blocker 1              
+                    { x: 0, y: 0, len: 2, dir: 'H', color: '#3498db' }, // Blocker 2
+                    { x: 0, y: 3, len: 2, dir: 'V', color: '#2ecc71' }, // Blocker 3
+                    { x: 3, y: 4, len: 3, dir: 'H', color: '#e67e22' }, // Blocker 4
+                    { x: 3, y: 0, len: 2, dir: 'V', color: '#9b59b6' }  // Blocker 6
+                ],
+                buttons: [
+                    { x: 5, y: 0, id: "lock1" } // Button to unlock exit
+                ],
+                exitLockId: "lock1"
+            },
+            // Level 7: 高難度機關門 (需要多步驟解鎖與重排)
+            {
+                vehicles: [
+                    { x: 0, y: 2, len: 2, dir: 'H', color: '#e74c3c', isTarget: true },
+                    { x: 2, y: 2, len: 2, dir: 'V', color: '#f1c40f' },
+                    { x: 0, y: 0, len: 2, dir: 'H', color: '#3498db' },
+                    { x: 3, y: 0, len: 3, dir: 'V', color: '#9b59b6' },
+                    { x: 0, y: 3, len: 2, dir: 'V', color: '#2ecc71' },
+                    { x: 1, y: 5, len: 3, dir: 'H', color: '#e67e22' },
+                    { x: 2, y: 4, len: 2, dir: 'H', color: '#1abc9c' },
+                    { x: 5, y: 1, len: 3, dir: 'V', color: '#95a5a6' }
+                ],
+                buttons: [
+                    { x: 4, y: 0, id: "lock1" }     
+                ],
+                exitLockId: "lock1"
+            }
+        ];
+
+        function initLevel() {
+            isGameOver = false;
+            // 深度複製關卡數據，避免修改到原始陣列
+            const levelData = JSON.parse(JSON.stringify(levels[currentLevelIndex]));
+            vehicles = levelData.vehicles;
+            currentButtons = levelData.buttons; // Initialize buttons
+            exitLocked = levelData.exitLockId ? true : false; // Exit is locked if exitLockId is present
+
+            document.getElementById('levelDisplay').innerText = `LEVEL: ${currentLevelIndex + 1} / ${levels.length}`;
+            
+            if (currentLevelIndex === 4) { // Level 5 (index 4)
+                alert("新機制：出口現在被鎖定！你需要將一輛車停在藍色按鈕上才能解鎖出口。");
+            }
+
+            checkButtonState(); // Check button state on level init
+            draw();
+        }
+
+        function drawVehicle(v) {
+            ctx.save();
+            const margin = 10;
+            const x = v.x * gridSize + margin;
+            const y = v.y * gridSize + margin;
+            const w = (v.dir === 'H' ? v.len * gridSize : gridSize) - margin * 2;
+            const h = (v.dir === 'V' ? v.len * gridSize : gridSize) - margin * 2;
+
+            // 立體陰影
+            ctx.shadowColor = 'rgba(0,0,0,0.5)';
+            ctx.shadowBlur = 6;
+            ctx.shadowOffsetY = 4;
+
+            // 車身
+            ctx.fillStyle = v.color;
+            ctx.beginPath();
+            ctx.roundRect(x, y, w, h, 12);
+            ctx.fill();
+            ctx.restore();
+
+            // 簡約裝飾燈
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+            if (v.dir === 'H') {
+                ctx.beginPath(); ctx.arc(x + w - 12, y + h/4, 4, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.arc(x + w - 12, y + h*3/4, 4, 0, Math.PI*2); ctx.fill();
+            } else {
+                ctx.beginPath(); ctx.arc(x + w/4, y + h - 12, 4, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.arc(x + w*3/4, y + h - 12, 4, 0, Math.PI*2); ctx.fill();
+            }
+        }
+
+        // Draw a button
+        function drawButton(b) {
+            ctx.save();
+            const x = b.x * gridSize + gridSize / 2;
+            const y = b.y * gridSize + gridSize / 2;
+            const radius = gridSize / 4;
+
+            ctx.fillStyle = 'rgba(0, 255, 255, 0.7)'; // Cyan button
+            ctx.beginPath();
+            ctx.arc(x, y, radius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // 繪製路面網格
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.05)";
+            for(let i=0; i<=6; i++) {
+                ctx.beginPath(); ctx.moveTo(0, i*gridSize); ctx.lineTo(600, i*gridSize); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(i*gridSize, 0); ctx.lineTo(i*gridSize, 600); ctx.stroke();
+            }
+
+            // 繪製出口
+            ctx.fillStyle = "rgba(231, 76, 60, 0.4)";
+            ctx.fillRect(5 * gridSize, 2 * gridSize, gridSize, gridSize);
+            ctx.fillStyle = "#fff";
+            ctx.font = "bold 18px sans-serif";
+            ctx.textAlign = "center";
+            ctx.fillText("EXIT", 5.5 * gridSize, 2.6 * gridSize);
+
+            // New: Draw lock icon if exit is locked
+            if (exitLocked) {
+                ctx.save();
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                ctx.font = "bold 24px Arial";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillText("🔒", 5.5 * gridSize, 2.5 * gridSize); // Lock icon at exit
+                ctx.restore();
+            }
+
+            currentButtons.forEach(drawButton); // Draw buttons
+            vehicles.forEach(drawVehicle);
+        }
+
+        function isOccupied(x, y, current) {
+            if (x < 0 || x >= 6 || y < 0 || y >= 6) return true;
+
+            // Check if occupied by a vehicle
+            return vehicles.some(v => {
+                if (v === current) return false;
+                if (v.dir === 'H') return y === v.y && x >= v.x && x < v.x + v.len;
+                return x === v.x && y >= v.y && y < v.y + v.len;
+            });
+        }
+
+        // Check if any vehicle is on a button
+        function checkButtonState() {
+            const currentLevel = levels[currentLevelIndex];
+            if (!currentLevel.exitLockId) {
+                exitLocked = false; // No lock for this level
+                return;
+            }
+
+            const targetButton = currentButtons.find(b => b.id === currentLevel.exitLockId);
+            if (!targetButton) {
+                exitLocked = true; // Should not happen if level data is correct
+                return;
+            }
+
+            let isButtonPressed = vehicles.some(v => {
+                // Check if any part of the vehicle covers the button
+                if (v.dir === 'H') {
+                    return v.y === targetButton.y && targetButton.x >= v.x && targetButton.x < v.x + v.len;
+                } else {
+                    return v.x === targetButton.x && targetButton.y >= v.y && targetButton.y < v.y + v.len;
+                }
+            });
+            exitLocked = !isButtonPressed; // Exit is unlocked if button is pressed
+            draw(); // Redraw to reflect lock state changes
+        }
+
+
+        function getMousePos(e) {
+            const rect = canvas.getBoundingClientRect();
+            return {
+                x: Math.floor((e.clientX - rect.left) / gridSize),
+                y: Math.floor((e.clientY - rect.top) / gridSize)
+            };
+        }
+
+        canvas.addEventListener('mousedown', e => {
+            if (isGameOver) return;
+            const pos = getMousePos(e);
+            selectedVehicle = vehicles.find(v => {
+                if (v.dir === 'H') return pos.y === v.y && pos.x >= v.x && pos.x < v.x + v.len;
+                return pos.x === v.x && pos.y >= v.y && pos.y < v.y + v.len;
+            });
+            if (selectedVehicle) isDragging = true;
+        });
+
+        window.addEventListener('mousemove', e => {
+            if (!isDragging || !selectedVehicle || isGameOver) return;
+            const pos = getMousePos(e);
+
+            if (selectedVehicle.dir === 'H') {
+                if (pos.x !== selectedVehicle.x) {
+                    const dir = pos.x > selectedVehicle.x ? 1 : -1;
+                    const checkX = dir === 1 ? selectedVehicle.x + selectedVehicle.len : selectedVehicle.x - 1;
+                    if (!isOccupied(checkX, selectedVehicle.y, selectedVehicle)) {
+                        selectedVehicle.x += dir;
+                        checkButtonState(); // Check button state after move
+                        draw();
+                        checkWin();
+                    }
+                }
+            } else {
+                if (pos.y !== selectedVehicle.y) {
+                    const dir = pos.y > selectedVehicle.y ? 1 : -1;
+                    const checkY = dir === 1 ? selectedVehicle.y + selectedVehicle.len : selectedVehicle.y - 1;
+                    if (!isOccupied(selectedVehicle.x, checkY, selectedVehicle)) {
+                        selectedVehicle.y += dir;
+                        checkButtonState(); // Check button state after move
+                        draw();
+                        checkWin();
+                    }
+                }
+            }
+        });
+
+        window.addEventListener('mouseup', () => { isDragging = false; selectedVehicle = null; });
+
+        function checkWin() {
+            const target = vehicles.find(v => v.isTarget);
+            // 當紅色車頭抵達最後一格 且出口未鎖定
+            if (target.x === 4 && !isGameOver) {
+                if (exitLocked) {
+                    // If exit is locked, don't win yet
+                    return;
+                }
+                isGameOver = true;
+                setTimeout(() => {
+                    if (currentLevelIndex < levels.length - 1) {
+                        alert("太棒了！準備進入下一關。");
+                        currentLevelIndex++;
+                        initLevel();
+                    } else {
+                        alert("🎉 全破達成！你是塞車大師！");
+                        currentLevelIndex = 0;
+                        initLevel();
+                    }
+                }, 100);
+            }
+        }
+
+        function resetGame() {
+            initLevel();
+        }
+
+        initLevel();
+    </script>
+</body>
+</html>
